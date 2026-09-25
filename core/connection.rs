@@ -4991,25 +4991,47 @@ mod tests {
     #[test]
     fn drop_sqlite_created_mixed_case_table_removes_schema_row() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("mixed_case.db");
-        {
+        let cases = [
+            (
+                "plain",
+                "CREATE TABLE T(x); INSERT INTO T VALUES(7)",
+                "DROP TABLE T",
+            ),
+            ("lower_command", "CREATE TABLE T(x)", "DROP TABLE t"),
+            ("quoted", "CREATE TABLE T(x)", "DROP TABLE \"T\""),
+            ("if_exists", "CREATE TABLE T(x)", "DROP TABLE IF EXISTS T"),
+            (
+                "dependents",
+                "CREATE TABLE T(x); CREATE INDEX Ix_T_x ON T(x); \
+                 CREATE TRIGGER Tr_T AFTER INSERT ON T BEGIN SELECT 1; END; \
+                 INSERT INTO T VALUES(7)",
+                "DROP TABLE T",
+            ),
+        ];
+        for (case, setup, sql) in cases {
+            let path = temp_dir.path().join(format!("{case}.db"));
+            {
+                let sqlite = rusqlite::Connection::open(&path).unwrap();
+                sqlite.execute_batch(setup).unwrap();
+            }
+
+            let conn = open_connection(&path);
+            conn.execute(sql).unwrap();
+            drop(conn);
+
             let sqlite = rusqlite::Connection::open(&path).unwrap();
-            sqlite.execute("CREATE TABLE T(x)", []).unwrap();
+            let remaining: i64 = sqlite
+                .query_row("SELECT count(*) FROM sqlite_schema", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(remaining, 0, "{case}");
+            sqlite
+                .execute_batch("CREATE TABLE u(y); INSERT INTO u VALUES(9)")
+                .unwrap();
+            let integrity: String = sqlite
+                .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(integrity, "ok", "{case}");
         }
-
-        let conn = open_connection(&path);
-        conn.execute("DROP TABLE T").unwrap();
-        drop(conn);
-
-        let sqlite = rusqlite::Connection::open(&path).unwrap();
-        let remaining: i64 = sqlite
-            .query_row("SELECT count(*) FROM sqlite_schema", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(remaining, 0);
-        let integrity: String = sqlite
-            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(integrity, "ok");
     }
 
     #[test]
@@ -5021,7 +5043,7 @@ mod tests {
             sqlite
                 .execute("CREATE TABLE T(id INTEGER PRIMARY KEY AUTOINCREMENT)", [])
                 .unwrap();
-            sqlite.execute("INSERT INTO T DEFAULT VALUES", []).unwrap();
+            sqlite.execute("INSERT INTO T(id) VALUES(99)", []).unwrap();
         }
 
         let conn = open_connection(&path);
@@ -5033,6 +5055,16 @@ mod tests {
             .query_row("SELECT count(*) FROM sqlite_sequence", [], |row| row.get(0))
             .unwrap();
         assert_eq!(remaining, 0);
+        sqlite
+            .execute_batch(
+                "CREATE TABLE T(id INTEGER PRIMARY KEY AUTOINCREMENT); \
+                 INSERT INTO T DEFAULT VALUES",
+            )
+            .unwrap();
+        let id: i64 = sqlite
+            .query_row("SELECT id FROM T", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(id, 1);
     }
 
     fn drive_attach(conn: &Arc<Connection>, path: &str, alias: &str) -> Result<()> {
