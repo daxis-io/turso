@@ -4988,6 +4988,30 @@ mod tests {
         open_connection_with_opts(path, DatabaseOpts::new())
     }
 
+    #[test]
+    fn drop_sqlite_created_mixed_case_table_removes_schema_row() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("mixed_case.db");
+        {
+            let sqlite = rusqlite::Connection::open(&path).unwrap();
+            sqlite.execute("CREATE TABLE T(x)", []).unwrap();
+        }
+
+        let conn = open_connection(&path);
+        conn.execute("DROP TABLE T").unwrap();
+        drop(conn);
+
+        let sqlite = rusqlite::Connection::open(&path).unwrap();
+        let remaining: i64 = sqlite
+            .query_row("SELECT count(*) FROM sqlite_schema", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0);
+        let integrity: String = sqlite
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(integrity, "ok");
+    }
+
     fn drive_attach(conn: &Arc<Connection>, path: &str, alias: &str) -> Result<()> {
         let mut state = AttachDatabaseState::default();
         loop {

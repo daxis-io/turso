@@ -1875,12 +1875,13 @@ pub fn translate_drop_table(
         table_name_and_root_page_register,
     );
     let next_label = program.allocate_label();
+    // SQLite preserves the original case in sqlite_schema.tbl_name.
     program.emit_insn(Insn::Ne {
         lhs: table_name_and_root_page_register,
         rhs: table_reg,
         target_pc: next_label,
         flags: CmpInsFlags::default(),
-        collation: program.curr_collation(),
+        collation: Some(crate::translate::collate::CollationSeq::NoCase),
     });
     program.emit_insn(Insn::RowId {
         cursor_id: sqlite_schema_cursor_id_0,
