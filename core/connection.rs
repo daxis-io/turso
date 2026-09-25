@@ -5012,6 +5012,29 @@ mod tests {
         assert_eq!(integrity, "ok");
     }
 
+    #[test]
+    fn drop_sqlite_created_mixed_case_autoincrement_clears_sequence() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("mixed_case_autoincrement.db");
+        {
+            let sqlite = rusqlite::Connection::open(&path).unwrap();
+            sqlite
+                .execute("CREATE TABLE T(id INTEGER PRIMARY KEY AUTOINCREMENT)", [])
+                .unwrap();
+            sqlite.execute("INSERT INTO T DEFAULT VALUES", []).unwrap();
+        }
+
+        let conn = open_connection(&path);
+        conn.execute("DROP TABLE T").unwrap();
+        drop(conn);
+
+        let sqlite = rusqlite::Connection::open(&path).unwrap();
+        let remaining: i64 = sqlite
+            .query_row("SELECT count(*) FROM sqlite_sequence", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(remaining, 0);
+    }
+
     fn drive_attach(conn: &Arc<Connection>, path: &str, alias: &str) -> Result<()> {
         let mut state = AttachDatabaseState::default();
         loop {

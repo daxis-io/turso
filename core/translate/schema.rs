@@ -2314,7 +2314,7 @@ pub fn translate_drop_table(
             rhs: dropped_table_name_reg,
             target_pc: continue_loop_label,
             flags: CmpInsFlags::default(),
-            collation: None,
+            collation: Some(crate::translate::collate::CollationSeq::NoCase),
         });
 
         program.emit_insn(Insn::Delete {
